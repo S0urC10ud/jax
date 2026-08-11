@@ -2337,6 +2337,15 @@ def device_put(
 
   This function is always asynchronous, i.e. returns immediately without
   blocking the calling Python thread until any transfers are completed.
+
+  When transferring an array to a CPU device, the result is a JAX array on
+  that device, not a NumPy array. To obtain a NumPy array on the host, use
+  :func:`device_get` instead.
+
+  See Also:
+    - :func:`jax.device_get`: Transfer values to host and return NumPy arrays.
+    - :func:`jax.copy_to_host_async`: Start copying values to host without
+      changing their device placement.
   """
   with config.explicit_device_put_scope():
     x_flat, treedef = tree_flatten(x)
@@ -2556,14 +2565,16 @@ def device_get(x: Any):
   """Transfer ``x`` to host.
 
   If ``x`` is a pytree, then the individual buffers are copied in parallel.
+  Array leaves are converted to NumPy arrays, and the calling Python thread
+  blocks until any required transfers are complete.
 
   Args:
     x: An array, scalar, Array or (nested) standard Python container thereof
       representing the array to be transferred to host.
 
   Returns:
-    An array or (nested) Python container thereof representing the
-    value of ``x``.
+    A NumPy array, or (nested) Python container thereof, representing the value
+    of ``x``. Non-array values are returned unchanged.
 
   Examples:
     Passing a Array:
@@ -2579,9 +2590,11 @@ def device_get(x: Any):
     1
 
   See Also:
-    - device_put
-    - device_put_sharded
-    - device_put_replicated
+    - :func:`jax.device_put`: Transfer values to a device asynchronously.
+    - :func:`jax.copy_to_host_async`: Start copying values to host without
+      waiting for the result.
+    - :func:`jax.device_put_sharded`
+    - :func:`jax.device_put_replicated`
   """
   with config.explicit_device_get_scope():
     for y in tree_leaves(x):
@@ -2792,19 +2805,26 @@ def block_until_ready(x):
   return x
 
 def copy_to_host_async(x):
-  """
-  Tries to call a ``copy_to_host_async`` method on pytree leaves.
+  """Start copying JAX array leaves in ``x`` to host asynchronously.
 
   For each leaf this method will try to call the ``copy_to_host_async`` method
   on the leaf. If the leaf is not a JAX array, or if the leaf does not have a
   ``copy_to_host_async`` method, then this method will do nothing to the leaf.
 
+  For JAX array leaves, this starts populating the on-host cache without
+  waiting for the transfer to complete. A subsequent :func:`device_get` may
+  still block if the transfer has not completed. This function does not change
+  the device placement of any array.
+
   Args:
     x: a pytree, usually with at least some JAX array instances at its leaves.
 
   Returns:
-    A pytree with the same structure and values of the input, where the host
-    copy of the values of all JAX array leaves are started.
+    ``x`` itself, unchanged.
+
+  See Also:
+    - :func:`jax.device_get`: Transfer values to host and return NumPy arrays.
+    - :func:`jax.device_put`: Transfer values to a device asynchronously.
   """
   for leaf in tree_leaves(x):
     try:
